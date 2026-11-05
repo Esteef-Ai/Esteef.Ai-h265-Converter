@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIConverter Worker</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 0; padding: 24px; background: #111418; color: #e6e8eb; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #9aa4af; font-size: 13px; margin-bottom: 20px; }
+  .panel { background: #1a1f26; border: 1px solid #2a3138; border-radius: 8px; padding: 16px; margin-bottom: 16px; max-width: 720px; }
+  .mode { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+  .running { color: #6fdc8c; } .paused { color: #d8cf6f; } .paused_frozen { color: #dc9c6f; }
+  .muted { color: #9aa4af; font-size: 13px; }
+  .bar { height: 8px; background: #0e1116; border-radius: 4px; overflow: hidden; margin: 10px 0 4px; }
+  .bar > div { height: 100%; background: #6fb6dc; }
+  .buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+  button { background: #2a3138; border: 1px solid #3a434c; color: #e6e8eb; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  button:hover { background: #3a434c; }
+  button.primary { border-color: #6fb6dc; color: #6fb6dc; }
+  button.danger { border-color: #7a3a3a; color: #dc6f6f; }
+  .help { font-size: 12px; color: #9aa4af; margin-top: 12px; line-height: 1.6; }
+  a { color: #6fb6dc; }
+</style>
+</head>
+<body>
+  <h1>AIConverter worker &middot; {{ name }}</h1>
+  <div class="sub">Helping the queue on <a href="{{ master_url }}" target="_blank">{{ master_url }}</a>
+    &middot; master {% if master.ok %}<span class="running">connected</span> ({{ master.last_ok }}){% else %}<span class="paused_frozen">not reachable{% if master.last_error %}: {{ master.last_error }}{% endif %}</span>{% endif %}</div>
+
+  <div class="panel">
+    {% if s.mode == "paused_frozen" %}
+      <div class="mode paused_frozen">Paused &mdash; current file frozen</div>
+      <div class="muted">Using no CPU. Resume picks the same file back up where it stopped.</div>
+    {% elif s.mode == "paused" and s.current_job_id %}
+      <div class="mode paused">Pausing after this file</div>
+    {% elif s.mode == "paused" %}
+      <div class="mode paused">Paused</div>
+      <div class="muted">Not taking any new files.</div>
+    {% elif s.current_job_id %}
+      <div class="mode running">Working</div>
+    {% else %}
+      <div class="mode running">Running &mdash; waiting for work</div>
+    {% endif %}
+
+    {% if s.current_job_id %}
+      <div style="margin-top:10px;">{{ s.current_file }}</div>
+      <div class="bar"><div style="width: {{ s.progress or 0 }}%"></div></div>
+      <div class="muted">{{ s.progress or 0 }}%{% if s.speed %} &middot; {{ "%.2f"|format(s.speed) }}x realtime{% endif %}{% if s.eta_seconds %} &middot; about {{ (s.eta_seconds // 60) }} min left in this stage{% endif %}</div>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="buttons">
+      {% if s.paused %}
+        <form method="post" action="/control/resume"><button class="primary">Resume</button></form>
+      {% endif %}
+      {% if not s.frozen %}
+        <form method="post" action="/control/pause_now"><button>Pause now</button></form>
+      {% endif %}
+      {% if not s.paused and s.current_job_id %}
+        <form method="post" action="/control/pause_after"><button>Pause after this file</button></form>
+      {% endif %}
+      {% if s.current_job_id %}
+        <form method="post" action="/control/stop_job" onsubmit="return confirm('Stop this file and hand it back to the main queue? Work done on it so far is discarded.');"><button class="danger">Stop file &amp; return it to queue</button></form>
+      {% endif %}
+      <form method="post" action="/control/quit" onsubmit="return confirm('Shut the worker down? Any file in progress goes back to the main queue.');"><button class="danger">Quit worker</button></form>
+    </div>
+    <div class="help">
+      <b>Pause now</b> freezes the encode instantly (no CPU use) and keeps your place.<br>
+      <b>Pause after this file</b> lets the current file finish, then stops taking new ones.<br>
+      <b>Stop file &amp; return it to queue</b> abandons the current file so another PC can take it, then pauses.<br>
+      <b>Quit worker</b> hands back any file in progress and shuts the worker down. Start it again from the desktop shortcut.<br>
+      Paused stays paused across restarts until you press Resume.
+    </div>
+  </div>
+<script>setTimeout(() => location.reload(), 5000);</script>
+</body>
+</html>

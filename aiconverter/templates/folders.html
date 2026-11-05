@@ -1,0 +1,127 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>AIConverter - Folders</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 0; padding: 24px; background: #111418; color: #e6e8eb; }
+  h1 { font-size: 20px; margin: 0 0 4px; display: inline-block; }
+  .nav { float: right; font-size: 13px; }
+  .sub { color: #9aa4af; font-size: 13px; margin-bottom: 16px; clear: both; }
+  .panel { background: #1a1f26; border: 1px solid #2a3138; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+  .cards { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .card { background: #1a1f26; border: 1px solid #2a3138; border-radius: 8px; padding: 10px 14px; min-width: 110px; }
+  .card .n { font-size: 20px; font-weight: 600; }
+  .card .l { font-size: 12px; color: #9aa4af; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid #2a3138; vertical-align: top; }
+  th { color: #9aa4af; font-weight: 500; white-space: nowrap; }
+  tr:hover { background: #20262e; }
+  .num { text-align: right; white-space: nowrap; }
+  .muted { color: #9aa4af; font-size: 12px; }
+  .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .b-never { background: #2e2a1a; color: #d8cf6f; }
+  .b-done_earlier { background: #24272b; color: #9aa4af; }
+  .b-watching { background: #16351f; color: #6fdc8c; }
+  .b-processing { background: #1a2635; color: #6fb6dc; }
+  .warn { color: #dc9c6f; }
+  .savings { color: #6fdc8c; }
+  select, button { background: #2a3138; border: 1px solid #3a434c; color: #e6e8eb; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+  button { cursor: pointer; }
+  button:hover { background: #3a434c; }
+  button.primary { border-color: #6fb6dc; color: #6fb6dc; }
+  form.inline { display: inline; }
+  a { color: #6fb6dc; }
+  .path { font-weight: 600; }
+  .legend td { border: none; padding: 3px 8px; }
+</style>
+</head>
+<body>
+  <div class="nav"><a href="{{ url_for('dashboard') }}">&larr; Dashboard</a> &middot; <a href="{{ url_for('quarantine_view') }}">Quarantine</a></div>
+  <h1>Folders</h1>
+  <div class="sub">Every folder in the library and where it stands, so nothing gets missed.
+    Disk counts {% if disk_at %}from {{ disk_at | fmt_time }}{% else %}not taken yet{% endif %}{% if counting %} &middot; <b>counting now&hellip;</b> (refresh in a minute){% endif %}
+    <form class="inline" method="post" action="{{ url_for('folders_recount') }}"><button>Recount now</button></form>
+  </div>
+
+  {% set n_never = rows | selectattr('state', 'equalto', 'never') | list | length %}
+  {% set n_earlier = rows | selectattr('state', 'equalto', 'done_earlier') | list | length %}
+  {% set n_watch = rows | rejectattr('state', 'in', ['never', 'done_earlier']) | list | length %}
+  {% set unseen = rows | map(attribute='disk') | select | map(attribute='unseen') | sum %}
+  {% set unseen_gb = rows | map(attribute='disk') | select | map(attribute='unseen_size') | sum %}
+  <div class="cards">
+    <div class="card"><div class="n">{{ n_watch }}</div><div class="l">Watched</div></div>
+    <div class="card"><div class="n">{{ n_earlier }}</div><div class="l">Finished earlier, not watched</div></div>
+    <div class="card"><div class="n">{{ n_never }}</div><div class="l">Never processed</div></div>
+    <div class="card"><div class="n warn">{{ unseen }}</div><div class="l">Videos never analysed ({{ unseen_gb | fmt_bytes }})</div></div>
+  </div>
+
+  <div class="panel">
+    <table>
+      <tr>
+        <th>Folder</th><th>Status</th>
+        <th class="num">On disk</th><th class="num">Not yet seen</th>
+        <th class="num">Converted</th><th class="num">Left alone</th><th class="num">Queued / working</th><th class="num">Trouble</th>
+        <th class="num">Other formats</th><th class="num">Saved</th>
+        <th>Format profile &amp; priority</th>
+      </tr>
+      {% for r in rows %}
+      <tr>
+        <td><span class="path">{{ r.path.split('\\')[-1] }}</span><div class="muted">{{ r.path }}</div></td>
+        <td>
+          {% if r.state == 'never' %}<span class="badge b-never">Never processed</span>
+          {% elif r.state == 'done_earlier' %}<span class="badge b-done_earlier">Finished earlier</span><div class="muted">not watched</div>
+          {% elif r.state == 'processing' %}<span class="badge b-processing">In progress</span>
+          {% else %}<span class="badge b-watching">Watched</span>{% endif %}
+        </td>
+        <td class="num">{% if r.disk %}{{ r.disk.files }}<div class="muted">{{ r.disk.size | fmt_bytes }}</div>{% else %}<span class="muted">&hellip;</span>{% endif %}</td>
+        <td class="num">{% if r.disk %}{% if r.disk.unseen %}<span class="warn">{{ r.disk.unseen }}</span><div class="muted">{{ r.disk.unseen_size | fmt_bytes }}</div>{% else %}<span class="muted">0</span>{% endif %}{% else %}<span class="muted">&hellip;</span>{% endif %}</td>
+        <td class="num">{{ r.reencoded or '' }}</td>
+        <td class="num">{{ r.left_alone or '' }}</td>
+        <td class="num">{{ r.pending or '' }}</td>
+        <td class="num">{% if r.trouble %}<span class="warn">{{ r.trouble }}</span>{% endif %}</td>
+        <td class="num">
+          {% if r.skipped_format %}{{ r.skipped_format }}{% endif %}
+          {% if r.legacy_skipped %}<div class="muted" title="Skipped MPEG-1 / VC-1 / DivX-Xvid files that the 'H.264 + legacy' profile would convert">{{ r.legacy_skipped }} legacy-eligible</div>
+          {% elif r.disk and r.disk.legacy_ext and not r.jobs %}<div class="muted" title="WMV/AVI/MPG files on disk -- the legacy profile converts the MPEG-1, VC-1 and DivX/Xvid ones">{{ r.disk.legacy_ext }} wmv/avi/mpg</div>{% endif %}
+        </td>
+        <td class="num">{% if r.saved %}<span class="savings">{{ r.saved | fmt_bytes }}</span>{% endif %}</td>
+        <td>
+          {% if r.watch %}
+            <form class="inline" method="post" action="{{ url_for('watch_dir_settings', dir_id=r.watch.id) }}">
+              <input type="hidden" name="next" value="{{ url_for('folders_view') }}">
+              <select name="profile">{% for p in profiles %}<option value="{{ p }}" {{ 'selected' if (r.watch.profile or 'standard') == p }}>{{ 'H.264 only' if p == 'standard' else 'H.264 + legacy' if p == 'legacy' else p }}</option>{% endfor %}</select>
+              <select name="priority">{% for n in ['high', 'normal', 'low'] %}<option value="{{ n }}" {{ 'selected' if priority_names.get(r.watch.priority or 0) == n }}>{{ n }}</option>{% endfor %}</select>
+              <button>Save</button>
+            </form>
+            <form class="inline" method="post" action="{{ url_for('remove_watch_dir', dir_id=r.watch.id) }}" onsubmit="return confirm('Stop watching this folder? Files already queued stay queued; nothing new will be picked up.');">
+              <input type="hidden" name="next" value="{{ url_for('folders_view') }}"><button>Stop watching</button>
+            </form>
+          {% else %}
+            <form class="inline" method="post" action="{{ url_for('add_directory') }}" onsubmit="return confirm('Start processing this folder with the selected format profile?');">
+              <input type="hidden" name="path" value="{{ r.path }}">
+              <input type="hidden" name="recursive" value="on">
+              <input type="hidden" name="next" value="{{ url_for('folders_view') }}">
+              <select name="profile">{% for p in profiles %}<option value="{{ p }}">{{ 'H.264 only' if p == 'standard' else 'H.264 + legacy' if p == 'legacy' else p }}</option>{% endfor %}</select>
+              <select name="priority">{% for n in ['high', 'normal', 'low'] %}<option value="{{ n }}" {{ 'selected' if n == 'normal' }}>{{ n }}</option>{% endfor %}</select>
+              <button class="primary">{{ 'Watch again' if r.state == 'done_earlier' else 'Add' }}</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <div class="panel">
+    <table class="legend">
+      <tr><td><b>H.264 only</b></td><td class="muted">Converts H.264 files. What every folder used until now.</td></tr>
+      <tr><td><b>H.264 + legacy</b></td><td class="muted">Also converts MPEG-1 (.mpg), VC-1 (.wmv) and DivX/Xvid (.avi/.mkv). These come out as <b>.mkv</b> (same name). WMV2/WMV3 are not included &mdash; tests showed they usually get bigger.</td></tr>
+      <tr><td><b>Priority</b></td><td class="muted">High-priority folders' files are processed before normal, then low. Changing it re-orders that folder's files that haven't started yet.</td></tr>
+      <tr><td><b>Not yet seen</b></td><td class="muted">Videos on disk the converter has no record of &mdash; a folder never added, or files added after a folder was finished. Use <b>Watch again</b> to pick them up (already-processed files are never redone).</td></tr>
+      <tr><td><b>Other formats</b></td><td class="muted">Files skipped because the folder's profile doesn't include their format. Switching a watched folder to H.264 + legacy queues the eligible ones.</td></tr>
+    </table>
+  </div>
+</body>
+</html>

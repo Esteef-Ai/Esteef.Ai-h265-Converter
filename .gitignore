@@ -1,0 +1,27 @@
+# Per-machine settings and secrets: worker key, FTP login, your folder paths
+config.json
+
+# Your queue, file names, logs and in-progress encodes
+data/
+logs/
+work/
+*.db
+*.db-*
+*.log
+*.lock
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Packaged builds (a worker package can contain a key) and media
+dist/
+*.zip
+*.exe
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.aiconverter-trash
+*.h265tmp

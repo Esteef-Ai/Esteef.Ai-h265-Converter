@@ -1,0 +1,334 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>AIConverter</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 0; padding: 24px; background: #111418; color: #e6e8eb; }
+  h1 { font-size: 20px; margin: 0 0 4px; display: inline-block; }
+  .nav { float: right; font-size: 13px; }
+  .sub { color: #9aa4af; font-size: 13px; margin-bottom: 20px; clear: both; }
+  .cards { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  .card { background: #1a1f26; border: 1px solid #2a3138; border-radius: 8px; padding: 12px 16px; min-width: 120px; }
+  .card .n { font-size: 22px; font-weight: 600; }
+  .card .l { font-size: 12px; color: #9aa4af; }
+  form.inline { display: inline; }
+  .panel { background: #1a1f26; border: 1px solid #2a3138; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #2a3138; white-space: nowrap; }
+  th { color: #9aa4af; font-weight: 500; }
+  tr:hover { background: #20262e; }
+  .status { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .status-done { background: #16351f; color: #6fdc8c; }
+  .status-queued { background: #2a2e1a; color: #d8cf6f; }
+  .status-encoding, .status-verifying, .status-probing, .status-finalizing { background: #1a2635; color: #6fb6dc; }
+  .status-failed, .status-verification_failed, .status-low_disk_space { background: #351a1a; color: #dc6f6f; }
+  .status-skipped_not_h264, .status-purged, .status-restored { background: #24272b; color: #9aa4af; }
+  .status-no_size_gain { background: #2e2a1a; color: #d8b56f; }
+  .status-bad_filename { background: #351a1a; color: #dc9c6f; }
+  input[type=text] { background: #0e1116; border: 1px solid #2a3138; color: #e6e8eb; padding: 6px 8px; border-radius: 4px; width: 380px; }
+  button { background: #2a3138; border: 1px solid #3a434c; color: #e6e8eb; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
+  button:hover { background: #3a434c; }
+  .savings { color: #6fdc8c; }
+  .muted { color: #9aa4af; }
+  a { color: #6fb6dc; }
+  .eta { color: #9aa4af; font-size: 11px; display: block; }
+  .viewtabs a { display: inline-block; padding: 5px 12px; margin-right: 4px; border: 1px solid #3a434c; border-radius: 4px; color: #e6e8eb; text-decoration: none; font-size: 13px; }
+  .viewtabs a.on { background: #2a3a4a; border-color: #6fb6dc; color: #6fb6dc; }
+  .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 100; }
+  .modal-backdrop.open { display: flex; }
+  .modal { background: #1a1f26; border: 1px solid #2a3138; border-radius: 8px; width: 520px; max-height: 70vh; display: flex; flex-direction: column; }
+  .modal-header { padding: 12px 16px; border-bottom: 1px solid #2a3138; font-weight: 600; }
+  .modal-path { padding: 8px 16px; color: #9aa4af; font-size: 12px; border-bottom: 1px solid #2a3138; word-break: break-all; }
+  .modal-list { overflow-y: auto; flex: 1; padding: 4px 0; }
+  .modal-item { padding: 8px 16px; cursor: pointer; }
+  .modal-item:hover { background: #20262e; }
+  .modal-footer { padding: 10px 16px; border-top: 1px solid #2a3138; display: flex; justify-content: flex-end; gap: 8px; }
+</style>
+</head>
+<body>
+  <div class="nav"><a href="{{ url_for('folders_view') }}">Folders</a> &middot; <a href="{{ url_for('quarantine_view') }}">Quarantine</a></div>
+  <h1>AIConverter</h1>
+  <div class="sub">H.264 &rarr; H.265 batch converter &middot; CRF {{ config.crf }} / {{ config.preset }} &middot; min VMAF {{ config.min_vmaf_score }} &middot; <a href="{{ url_for('quarantine_view') }}">quarantine {{ config.quarantine_days }} days</a></div>
+
+  <div class="cards">
+    <div class="card"><div class="n">{{ stats.total or 0 }}</div><div class="l">Total files</div></div>
+    <div class="card"><div class="n">{{ stats.queued or 0 }}</div><div class="l">Queued</div></div>
+    <div class="card"><div class="n">{{ stats.active or 0 }}</div><div class="l">In progress</div></div>
+    <div class="card"><div class="n">{{ stats.done or 0 }}</div><div class="l">Done</div></div>
+    <div class="card"><div class="n">{{ stats.failed or 0 }}</div><div class="l">Needs attention</div></div>
+    <div class="card">
+      <div class="n savings">
+        {% if stats.src_bytes_done %}{{ "%.0f"|format(100 * (1 - (stats.out_bytes_done / stats.src_bytes_done))) }}%{% else %}-{% endif %}
+      </div>
+      <div class="l">Space saved so far</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div style="font-weight:600; margin-bottom:10px;">Computers</div>
+    <table>
+      <tr><th>PC</th><th>State</th><th>Working on</th><th>Progress</th><th>Last check-in</th><th></th></tr>
+      <tr>
+        <td>{{ local_name }} <span class="muted">(this PC)</span></td>
+        <td><span class="status status-done">running</span></td>
+        <td>{% if status.current_job_id %}job {{ status.current_job_id }}{% else %}<span class="muted">idle</span>{% endif %}</td>
+        <td>{% if status.current_job_id %}{{ status.current_progress }}%{% if status.current_speed %} &middot; {{ "%.2f"|format(status.current_speed) }}x{% endif %}{% endif %}</td>
+        <td class="muted">-</td><td></td>
+      </tr>
+      {% for w in workers %}
+      <tr>
+        <td>{{ w.name }} <span class="muted">({{ w.address }})</span></td>
+        <td>
+          {% if not w.online %}<span class="status status-failed">offline</span>
+          {% elif w.state.mode == "stopped" %}<span class="status status-purged">not running</span>
+          {% elif w.state.mode == "paused_frozen" %}<span class="status status-no_size_gain">paused (file frozen)</span>
+          {% elif w.state.mode == "paused" and w.state.current_job_id %}<span class="status status-queued">pausing after this file</span>
+          {% elif w.state.mode == "paused" %}<span class="status status-queued">paused</span>
+          {% else %}<span class="status status-done">running</span>{% endif %}
+          {% if w.pending_command %}<div class="muted">sending: {{ w.pending_command }}</div>{% endif %}
+        </td>
+        <td>{% if w.job %}<span title="{{ w.job.source_path }}">{{ w.job.filename[:60] }}</span> <span class="muted">({{ w.job.status }})</span>{% else %}<span class="muted">idle</span>{% endif %}</td>
+        <td>{% if w.state.current_job_id %}{{ w.state.progress }}%{% if w.state.speed %} &middot; {{ "%.2f"|format(w.state.speed) }}x{% endif %}{% if w.state.eta_seconds %}<span class="eta">ETA {{ w.state.eta_seconds | fmt_duration }}</span>{% endif %}{% endif %}</td>
+        <td class="muted">{{ w.last_seen[11:] }}</td>
+        <td>
+          {% if w.online and w.state.mode != "stopped" %}
+            {% if w.state.paused %}
+              <form class="inline" method="post" action="{{ url_for('worker_command', name=w.name) }}"><input type="hidden" name="cmd" value="resume"><button>Resume</button></form>
+            {% endif %}
+            {% if not w.state.frozen %}
+              <form class="inline" method="post" action="{{ url_for('worker_command', name=w.name) }}"><input type="hidden" name="cmd" value="pause_now"><button>Pause now</button></form>
+            {% endif %}
+            {% if not w.state.paused and w.state.current_job_id %}
+              <form class="inline" method="post" action="{{ url_for('worker_command', name=w.name) }}"><input type="hidden" name="cmd" value="pause_after"><button>Pause after file</button></form>
+            {% endif %}
+            {% if w.state.current_job_id %}
+              <form class="inline" method="post" action="{{ url_for('worker_command', name=w.name) }}" onsubmit="return confirm('Stop the file on {{ w.name }} and put it back in the queue?');"><input type="hidden" name="cmd" value="stop_job"><button>Stop &amp; requeue</button></form>
+            {% endif %}
+          {% else %}
+            <form class="inline" method="post" action="{{ url_for('worker_forget', name=w.name) }}"><button>Remove</button></form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% if not workers %}<div class="muted" style="margin-top:8px;">No other PCs connected yet.</div>{% endif %}
+  </div>
+
+  <div class="panel">
+    <div style="font-weight:600; margin-bottom:10px;">Library summary</div>
+    <table class="summary">
+      <tr><th></th><th>Files</th><th>Space</th><th></th></tr>
+      <tr>
+        <td>Analyzed</td>
+        <td>{{ summary.analyzed.count }}</td>
+        <td>{{ summary.analyzed.src | fmt_bytes }}</td>
+        <td class="muted">every file scanned, at original size</td>
+      </tr>
+      <tr>
+        <td>Untouched</td>
+        <td>{{ summary.untouched.count }}</td>
+        <td>{{ summary.untouched.src | fmt_bytes }}</td>
+        <td class="muted">originals left as-is: wouldn't shrink, not H.264, or failed</td>
+      </tr>
+      <tr>
+        <td>Re-encoded</td>
+        <td>{{ summary.reencoded.count }}</td>
+        <td>{{ summary.reencoded.src | fmt_bytes }} &rarr; {{ summary.reencoded.out | fmt_bytes }}</td>
+        <td class="muted">converted to H.265 and swapped in (original &rarr; new size)</td>
+      </tr>
+      <tr>
+        <td>Space reduction</td>
+        <td>{{ summary.reencoded.count }}</td>
+        <td class="savings">{{ summary.saved | fmt_bytes }} ({{ "%.1f"|format(summary.saved_pct) }}%)</td>
+        <td class="muted">space saved across the re-encoded files</td>
+      </tr>
+      <tr>
+        <td>Still pending</td>
+        <td>{{ summary.pending.count }}</td>
+        <td>{{ summary.pending.src | fmt_bytes }}</td>
+        <td class="muted">queued or in progress</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="panel">
+    <form class="inline" method="post" action="{{ url_for('add_directory') }}" id="add-dir-form" autocomplete="off">
+      <input type="text" name="path" id="path-input" placeholder="Choose a folder with Browse, or type its path" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+      <button type="button" id="browse-btn" onclick="pickFolder()">Browse...</button>
+      <label class="muted"><input type="checkbox" name="recursive" checked> include subfolders</label>
+      <select name="profile" title="Which source formats to convert">
+        <option value="standard">H.264 only</option>
+        <option value="legacy">H.264 + legacy (MPEG-1, VC-1, DivX/Xvid)</option>
+      </select>
+      <select name="priority" title="Processing order relative to other folders">
+        <option value="high">high priority</option><option value="normal" selected>normal priority</option><option value="low">low priority</option>
+      </select>
+      <button type="submit">Add directory</button>
+    </form>
+    <form class="inline" method="post" action="{{ url_for('rescan') }}"><button type="submit">Rescan all watched directories</button></form>
+    <div style="margin-top:10px;" class="muted">
+      Watched: {% for wd in watch_dirs %}
+        <code>{{ wd.path }}</code>{% if not wd.recursive %} (top-level only){% endif %}
+        <span class="muted">[{{ 'H.264 + legacy' if wd.profile == 'legacy' else 'H.264 only' }}{% if wd.priority %}, {{ 'high' if wd.priority > 0 else 'low' }} priority{% endif %}]</span>
+        (last scanned {{ wd.last_scanned_at or "never" }})
+        <form class="inline" method="post" action="{{ url_for('remove_watch_dir', dir_id=wd.id) }}"><button type="submit">stop watching</button></form>
+        {% if not loop.last %} &middot; {% endif %}
+      {% else %}none yet{% endfor %}
+    </div>
+  </div>
+
+  <div class="panel">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:12px; flex-wrap:wrap;">
+      <div class="viewtabs">
+        <a href="{{ url_for('dashboard', view='all') }}" class="{{ 'on' if view == 'all' }}">All ({{ view_counts.all }})</a>
+        <a href="{{ url_for('dashboard', view='active') }}" class="{{ 'on' if view == 'active' }}">Queued &amp; in progress ({{ view_counts.active }})</a>
+        <a href="{{ url_for('dashboard', view='trouble') }}" class="{{ 'on' if view == 'trouble' }}">Trouble files ({{ view_counts.trouble }})</a>
+      </div>
+      {% if view == 'trouble' and view_counts.trouble %}
+        <form class="inline" method="post" action="{{ url_for('requeue_trouble') }}" onsubmit="return confirm('Requeue all {{ view_counts.trouble }} trouble files for a fresh attempt at the default CRF?');">
+          <button type="submit">Requeue all trouble files</button>
+        </form>
+      {% endif %}
+    </div>
+    <table>
+      <tr>
+        <th>File</th><th>Status</th><th>Length</th><th>Resolution/FPS</th>
+        <th>Source size</th><th>Source quality</th><th>CRF</th><th>Output size</th><th>Saved</th><th>VMAF</th><th>Progress</th><th>PC</th><th></th>
+      </tr>
+      {% for j in jobs %}
+      <tr>
+        <td title="{{ j.source_path }}">{{ j.filename }}</td>
+        <td><span class="status status-{{ j.status }}">{{ j.status }}</span>{% if j.error_message %}<div class="muted" style="white-space:normal;max-width:260px;">{{ j.error_message }}</div>{% endif %}</td>
+        <td>{{ j.src_duration | fmt_duration }}</td>
+        <td>{{ j.src_width }}x{{ j.src_height }} @ {{ "%.2f"|format(j.src_fps) if j.src_fps else "-" }}fps</td>
+        <td>{{ j.src_size | fmt_bytes }}</td>
+        <td>{{ j.src_codec }}{% if j.src_bitrate %}, {{ "%.1f"|format(j.src_bitrate/1000000) }} Mbps{% endif %}{% if j.is_hdr %} <span title="HDR source - spot check color after conversion">HDR</span>{% endif %}</td>
+        <td>{{ j.crf if j.crf is not none else "-" }}</td>
+        <td>{{ j.out_size | fmt_bytes }}</td>
+        <td>{% if j.out_size and j.src_size %}<span class="savings">{{ "%.0f"|format(100 * (1 - j.out_size / j.src_size)) }}%</span>{% else %}-{% endif %}</td>
+        <td>{{ "%.1f"|format(j.vmaf_score) if j.vmaf_score else "-" }}</td>
+        <td>
+          {% if j.status in ("encoding","verifying") %}
+            {{ j.progress_pct }}%
+            {% if j.id == status.current_job_id and j.status == "encoding" %}
+              <span class="eta">
+                {% if status.current_eta_seconds %}ETA {{ status.current_eta_seconds | fmt_duration }}{% endif %}
+                {% if status.current_speed %} ({{ "%.2f"|format(status.current_speed) }}x realtime){% endif %}
+              </span>
+            {% endif %}
+          {% else %}-{% endif %}
+        </td>
+        <td class="muted">{{ j.worker or "" }}</td>
+        <td>
+          {% if j.status in ("failed","verification_failed","low_disk_space") %}
+            <form class="inline" method="post" action="{{ url_for('retry_job', job_id=j.id) }}"><button type="submit">Retry</button></form>
+          {% endif %}
+          {% if j.quarantine_path %}
+            <form class="inline" method="post" action="{{ url_for('restore_job', job_id=j.id) }}" onsubmit="return confirm('Restore original and delete the converted file?');"><button type="submit">Restore original</button></form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <div class="modal-backdrop" id="browse-modal">
+    <div class="modal">
+      <div class="modal-header">Choose a folder</div>
+      <div class="modal-path" id="browse-path">Drives</div>
+      <div class="modal-list" id="browse-list"></div>
+      <div class="modal-footer">
+        <button type="button" onclick="closeBrowser()">Cancel</button>
+        <button type="button" onclick="selectCurrent()">Select this folder</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+let browseCurrentPath = "";
+let pickerOpen = false;
+
+// Native Windows folder dialog when this browser is on the PC running the
+// app; otherwise the in-page picker below.
+async function pickFolder() {
+  const btn = document.getElementById('browse-btn');
+  btn.disabled = true;
+  pickerOpen = true;
+  try {
+    const res = await fetch('/api/pick_folder', {method: 'POST', headers: {'X-Requested-With': 'fetch'}});
+    const data = await res.json();
+    if (data.fallback) openBrowser();
+    else if (data.path) document.getElementById('path-input').value = data.path;
+    else if (data.busy) alert('A folder dialog is already open -- it may be behind another window.');
+  } catch (e) {
+    openBrowser();
+  } finally {
+    btn.disabled = false;
+    pickerOpen = false;
+  }
+}
+function openBrowser() {
+  document.getElementById('browse-modal').classList.add('open');
+  loadBrowse("");
+}
+function closeBrowser() {
+  document.getElementById('browse-modal').classList.remove('open');
+}
+function selectCurrent() {
+  if (browseCurrentPath) {
+    document.getElementById('path-input').value = browseCurrentPath;
+  }
+  closeBrowser();
+}
+async function loadBrowse(path) {
+  const res = await fetch('/api/browse?path=' + encodeURIComponent(path));
+  const data = await res.json();
+  if (data.error) { alert(data.error); return; }
+  browseCurrentPath = data.path;
+  document.getElementById('browse-path').textContent = data.path || "Drives";
+  const list = document.getElementById('browse-list');
+  list.innerHTML = "";
+  if (data.parent !== null && data.parent !== undefined) {
+    const up = document.createElement('div');
+    up.className = 'modal-item';
+    up.textContent = '.. (up)';
+    up.onclick = () => loadBrowse(data.parent);
+    list.appendChild(up);
+  } else if (data.path) {
+    const up = document.createElement('div');
+    up.className = 'modal-item';
+    up.textContent = '.. (drives)';
+    up.onclick = () => loadBrowse("");
+    list.appendChild(up);
+  }
+  for (const entry of data.entries) {
+    const el = document.createElement('div');
+    el.className = 'modal-item';
+    el.textContent = entry.name;
+    el.onclick = () => loadBrowse(entry.path);
+    list.appendChild(el);
+  }
+  if (data.entries.length === 0 && data.path) {
+    const none = document.createElement('div');
+    none.className = 'modal-item muted';
+    none.textContent = '(no subfolders)';
+    list.appendChild(none);
+  }
+}
+
+// Auto-refresh every 15s -- but never while the user is in the middle of
+// something a reload would wipe out: the folder picker open, a path typed or
+// being typed, or any form field focused. Checked each tick, so refreshing
+// resumes on its own once they're done.
+function userIsBusy() {
+  if (pickerOpen || document.getElementById('browse-modal').classList.contains('open')) return true;
+  if (document.getElementById('path-input').value.trim() !== '') return true;
+  const el = document.activeElement;
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA');
+}
+setInterval(() => { if (!userIsBusy()) location.reload(); }, 15000);
+</script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>AIConverter - Quarantine</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 0; padding: 24px; background: #111418; color: #e6e8eb; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #9aa4af; font-size: 13px; margin-bottom: 20px; }
+  .panel { background: #1a1f26; border: 1px solid #2a3138; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #2a3138; white-space: nowrap; }
+  th { color: #9aa4af; font-weight: 500; }
+  tr:hover { background: #20262e; }
+  button { background: #2a3138; border: 1px solid #3a434c; color: #e6e8eb; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
+  button:hover { background: #3a434c; }
+  .muted { color: #9aa4af; }
+  .soon { color: #dc9c6f; }
+  a { color: #6fb6dc; }
+</style>
+</head>
+<body>
+  <div style="float:right;"><a href="{{ url_for('dashboard') }}">&larr; Back to dashboard</a></div>
+  <h1>Quarantine</h1>
+  <div class="sub">Original files renamed to <code>{{ config.quarantine_suffix }}</code> after their H.265 replacement was verified. Permanently deleted {{ config.quarantine_days }} days after quarantine unless restored first.</div>
+
+  {% if items %}
+  <div class="panel">
+    <form method="post" action="{{ url_for('quarantine_purge_all') }}" onsubmit="return confirm('Permanently delete all {{ items|length }} quarantined original files now? This cannot be undone.');">
+      <button type="submit" style="border-color:#7a3a3a; color:#dc6f6f;">Delete all {{ items|length }} quarantined files now</button>
+      <span class="muted" style="margin-left:10px;">Skips the remaining grace period. Converted files are not affected.</span>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="panel">
+    <table>
+      <tr><th>File</th><th>Quarantined path</th><th>Original size</th><th>Converted size</th><th>VMAF</th><th>Expires</th><th></th></tr>
+      {% for j in items %}
+      <tr>
+        <td>{{ j.filename }}</td>
+        <td class="muted" title="{{ j.quarantine_path }}">{{ j.quarantine_path }}</td>
+        <td>{{ "%.1f MB"|format(j.src_size / 1048576) if j.src_size else "-" }}</td>
+        <td>{{ "%.1f MB"|format(j.out_size / 1048576) if j.out_size else "-" }}</td>
+        <td>{{ "%.1f"|format(j.vmaf_score) if j.vmaf_score else "-" }}</td>
+        <td>{{ j.quarantine_expires_at or "-" }}</td>
+        <td>
+          <form method="post" action="{{ url_for('restore_job', job_id=j.id) }}" onsubmit="return confirm('Restore original and delete the converted file?');">
+            <button type="submit">Restore original</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="muted">Nothing in quarantine right now.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</body>
+</html>
