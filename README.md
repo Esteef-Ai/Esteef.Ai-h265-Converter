@@ -1,6 +1,8 @@
-# AIConverter
+# Esteef.Ai h265 Converter
 
 Batch-converts a video library to H.265 (HEVC) on Windows, unattended, and checks every result before touching the original. Point it at a folder, and it works through the files one at a time from a web dashboard. Other PCs on your network can help with the workload.
+
+The app and its files are named AIConverter, which is the name you'll see on the dashboard and in the commands below.
 
 **Replacing a file only happens after it passes all of these checks:**
 
@@ -60,7 +62,7 @@ To start it automatically when you log in (optional):
 powershell -ExecutionPolicy Bypass -File install_startup.ps1
 ```
 
-If Windows Update restarts the PC, AIConverter won't run again until someone logs in. Setting Windows Update's active hours helps avoid that.
+If Windows Update restarts the PC, the converter won't run again until someone logs in. Setting Windows Update's active hours helps avoid that.
 
 ## Using more than one PC
 
@@ -97,7 +99,6 @@ Every setting is listed with an explanation in [aiconverter/config.py](aiconvert
 ## Known limits
 
 - **HDR is untested.** The test library had no HDR files. Basic color tags are copied, but HDR10 mastering metadata isn't, so check HDR files yourself.
-- **Filenames with emoji** can't be opened through some network shares. The app tries to rename them and lists any it can't under **Trouble files**. An optional FTP login (`ftp_rename` in `config.json`) can rename them on devices that support it.
 - **Incomplete or damaged files** are logged and skipped until the file changes.
 - **CPU encoding only.** There is no GPU encoding.
 - **The dashboard has no login.** By default only the PC running it can reach it. See the warning in [docs/MULTIPLE_MACHINES.md](docs/MULTIPLE_MACHINES.md) before opening it to your network.
